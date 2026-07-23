@@ -98,15 +98,27 @@ class BleManager(private val context: Context) {
         connectedMac = null
     }
 
-    private suspend fun connect(device: BluetoothDevice): Boolean =
+    private suspend fun connect(device: BluetoothDevice): Boolean {
+        // Try up to 3 times
+        repeat(3) { attempt ->
+            val result = connectInternal(device, attempt + 1)
+            if (result) return true
+            if (attempt < 2) {
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglanti deneme ${attempt + 1} basarisiz, 2sn bekleniyor...")
+                kotlinx.coroutines.delay(2000)
+            }
+        }
+        return false
+    }
+
+    private suspend fun connectInternal(device: BluetoothDevice, attempt: Int): Boolean =
         withContext(Dispatchers.IO) {
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglaniyor: ${device.name} (${device.address})")
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglaniyor (deneme $attempt): ${device.name} (${device.address})")
             connectedMac = device.address
 
             val deferred = CompletableDeferred<Boolean>()
 
-            // autoConnect=true daha guvenilir baglanti
-            bluetoothGatt = device.connectGatt(context, true, object : BluetoothGattCallback() {
+            bluetoothGatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                     Log.d(TAG, "Connection state: status=$status state=$newState")
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -184,7 +196,13 @@ class BleManager(private val context: Context) {
                 }
             })
 
-            deferred.await()
+            val success = deferred.await()
+            if (!success) {
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglanti basarisiz (deneme $attempt)")
+                bluetoothGatt?.close()
+                bluetoothGatt = null
+            }
+            success
         }
 
     suspend fun handshake() {
