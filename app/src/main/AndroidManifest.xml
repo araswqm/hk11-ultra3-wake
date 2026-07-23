@@ -43,7 +43,7 @@
         <activity
             android:name=".TaskerPluginActivity"
             android:exported="true"
-            android:label="HK11 Wake"
+            android:label="HK11 Wake">
 
             <!-- Tasker / Locale plugin standardı -->
             <intent-filter>
