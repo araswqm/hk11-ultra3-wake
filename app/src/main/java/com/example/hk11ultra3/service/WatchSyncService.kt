@@ -153,15 +153,17 @@ class WatchSyncService : Service() {
 
         bleManager.callback = object : BleManager.Callback {
             override fun onConnected(mac: String) {
-                Log.i(TAG, "Bağlandı: $mac")
-                updateNotification("🔗 Bağlandı, uyku verisi alınıyor...")
+                Log.i(TAG, "Baglandi: $mac")
+                updateNotification("Baglandi, uyku verisi aliniyor...")
                 serviceScope.launch {
                     try {
                         bleManager.handshake()
                         delay(500)
                         bleManager.requestSleepData()
+                        Log.i(TAG, "requestSleepData tamamlandi, notify bekleniyor...")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Sync hatası", e)
+                        Log.e(TAG, "Sync hatasi: ${e.message}", e)
+                        prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
                         finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
                     }
                 }
@@ -193,14 +195,21 @@ class WatchSyncService : Service() {
 
         serviceScope.launch {
             try {
-                withTimeout(30_000L) {
+                val connected = withTimeout(30_000L) {
                     bleManager.scanAndConnect(settings.targetMacAddress)
                 }
+                if (!connected) {
+                    Log.e(TAG, "Cihaza baglanilamadi")
+                    prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+                    finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
+                }
             } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "Bağlantı zaman aşımı")
+                Log.e(TAG, "Baglanti zaman asimi (30sn)")
+                prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             } catch (e: Exception) {
-                Log.e(TAG, "Bağlantı hatası", e)
+                Log.e(TAG, "Baglanti hatasi: ${e.message}", e)
+                prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             }
         }
@@ -374,26 +383,20 @@ class WatchSyncService : Service() {
         isSyncing = false
         bleManager.disconnect()
 
+        // Ensure sync time is always updated so UI polling detects completion
+        prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+
         val recordCount = prefs.getInt("summary_segment_count", 0)
+        Log.i(TAG, "finishSync: wakeDetected=$wakeDetected records=$recordCount isPeriodic=$isPeriodic")
 
-        // Notify UI via broadcast
-        sendBroadcast(Intent(BROADCAST_SYNC_DONE).apply {
-            putExtra("record_count", recordCount)
-            putExtra("wake_detected", wakeDetected)
-        })
-
-        // Brief delay so broadcast is delivered before service stops
-        serviceScope.launch {
-            delay(500)
-            if (wakeDetected) {
-                Log.i(TAG, "Uyanma tespit edildi, servis kapatiliyor")
-            } else if (isPeriodic) {
-                val intervalMs = SyncScheduler.getCurrentIntervalMinutes() * 60_000
-                SyncScheduler.scheduleNext(this@WatchSyncService, intervalMs)
-                Log.i(TAG, "Sonraki periyodik sync: ${intervalMs / 60_000}dk sonra")
-            }
-            stopSelf()
+        if (wakeDetected) {
+            Log.i(TAG, "Uyanma tespit edildi, servis kapatiliyor")
+        } else if (isPeriodic) {
+            val intervalMs = SyncScheduler.getCurrentIntervalMinutes() * 60_000
+            SyncScheduler.scheduleNext(this, intervalMs)
+            Log.i(TAG, "Sonraki periyodik sync: ${intervalMs / 60_000}dk sonra")
         }
+        stopSelf()
     }
 
     // ── Hatırlatıcı ───────────────────────────────────────────────────
