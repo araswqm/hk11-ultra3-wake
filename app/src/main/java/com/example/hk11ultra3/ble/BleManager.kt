@@ -383,23 +383,25 @@ class BleManager(private val context: Context) {
 
         val foundDevices = mutableListOf<String>()
 
-        // WearFit Pro koduyla ayni: deprecated startLeScan API
-        val leScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, scanRecord ->
-            val name = device?.name ?: "(isimsiz)"
-            val mac = device?.address ?: ""
-            foundDevices.add("$name ($mac) RSSI:$rssi")
-            Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
+        // WearFit Pro koduyla ayni: deprecated startLeScan API (object olarak)
+        val leScanCallback = object : BluetoothAdapter.LeScanCallback {
+            override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanRecord: ByteArray?) {
+                val name = device?.name ?: "(isimsiz)"
+                val mac = device?.address ?: ""
+                foundDevices.add("$name ($mac) RSSI:$rssi")
+                Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
 
-            if (targetMac != null) {
-                if (mac.equals(targetMac, ignoreCase = true)) {
-                    bluetoothAdapter.stopLeScan(leScanCallback)
-                    deferred.complete(device)
-                }
-            } else {
-                if (name.contains("HK11", ignoreCase = true) ||
-                    name.contains("Ultra", ignoreCase = true)) {
-                    bluetoothAdapter.stopLeScan(leScanCallback)
-                    deferred.complete(device)
+                if (targetMac != null) {
+                    if (mac.equals(targetMac, ignoreCase = true)) {
+                        bluetoothAdapter.stopLeScan(this)
+                        deferred.complete(device)
+                    }
+                } else {
+                    if (name.contains("HK11", ignoreCase = true) ||
+                        name.contains("Ultra", ignoreCase = true)) {
+                        bluetoothAdapter.stopLeScan(this)
+                        deferred.complete(device)
+                    }
                 }
             }
         }
