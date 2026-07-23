@@ -102,11 +102,9 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             saveSettings()
-            binding.tvStatus.text = "⏳ Periyodik sync başlatılıyor..."
+            binding.tvStatus.text = "⏳ Sync başlatılıyor..."
             binding.progressBar.visibility = View.VISIBLE
-            // Periyodik modda başlat: uyanana kadar her N dakikada bir sync
             WatchSyncService.startPeriodicSync(this)
-            Toast.makeText(this, "Otomatik mod aktif — uyanana kadar kontrol edecek", Toast.LENGTH_LONG).show()
         }
 
         // Durdur butonu
@@ -188,8 +186,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.progressBar.visibility = View.GONE
-        binding.tvStatus.text = if (prefs.getString("target_mac", "")?.isNotBlank() == true)
-            "⚡ Hazır" else "⚠ MAC adresi gerekli"
+
+        // Sync durumunu SharedPreferences'tan oku
+        val lastSyncTime = prefs.getLong("summary_sync_time", 0L)
+        val recordCount = prefs.getInt("summary_segment_count", 0)
+
+        binding.tvStatus.text = when {
+            prefs.getString("target_mac", "")?.isBlank() == true -> "⚠ MAC adresi gerekli"
+            lastSyncTime == 0L -> "⚡ Hazir (henuz sync yapilmadi)"
+            recordCount > 0 -> "✅ $recordCount uyku kaydi alindi"
+            else -> {
+                val secondsAgo = (System.currentTimeMillis() - lastSyncTime) / 1000
+                "⚠ Uyku kaydi bulunamadi (${secondsAgo}s once denendi)"
+            }
+        }
 
         // Uyku özetini göster
         updateSleepSummary()
