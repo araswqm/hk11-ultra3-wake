@@ -24,7 +24,6 @@
     <application
         android:name=".HK11App"
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
         android:label="HK11 Wake"
         android:supportsRtl="true"
         android:theme="@style/Theme.HK11Ultra3"
@@ -45,7 +44,6 @@
             android:name=".TaskerPluginActivity"
             android:exported="true"
             android:label="HK11 Wake"
-            android:icon="@mipmap/ic_launcher">
 
             <!-- Tasker / Locale plugin standardı -->
             <intent-filter>
