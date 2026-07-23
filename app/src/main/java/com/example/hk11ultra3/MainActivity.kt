@@ -104,9 +104,26 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             saveSettings()
+
+            // Bluetooth acik mi kontrol et
+            val btManager = getSystemService(android.content.Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+            val btAdapter = btManager.adapter
+            if (btAdapter == null || !btAdapter.isEnabled) {
+                AppLogger.log(this, "UI", "HATA: Bluetooth kapali")
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Bluetooth Kapali")
+                    .setMessage("Senkronizasyon icin Bluetooth acik olmali. Acilsin mi?")
+                    .setPositiveButton("Ac") { _, _ ->
+                        val enableIntent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                        startActivity(enableIntent)
+                    }
+                    .setNegativeButton("Iptal", null)
+                    .show()
+                return@setOnClickListener
+            }
+
             binding.tvStatus.text = "⏳ Sync başlatılıyor..."
             binding.progressBar.visibility = View.VISIBLE
-            // Clear previous sync time so polling detects new sync
             prefs.edit().putLong("summary_sync_time", 0L).apply()
             WatchSyncService.startPeriodicSync(this)
             startPolling()

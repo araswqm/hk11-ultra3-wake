@@ -93,6 +93,17 @@ class WatchSyncService : Service() {
         bleManager = BleManager(this)
         reminderManager = ReminderManager(this)
         prefs = getSharedPreferences("hk11_settings", Context.MODE_PRIVATE)
+        isSyncing = false  // Her zaman temiz başla
+        // 60 saniye sonra takılı kalan sync'i zorla temizle
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (isSyncing) {
+                AppLogger.log(this, TAG, "UYARI: Sync 60sn'dir takili, zorla resetleniyor")
+                isSyncing = false
+                prefs.edit().putLong("summary_sync_time", System.currentTimeMillis())
+                    .putString("last_error", "Sync takili kaldi, resetlendi").apply()
+                stopSelf()
+            }
+        }, 60_000L)
         startForeground()
     }
 
@@ -174,8 +185,10 @@ class WatchSyncService : Service() {
             }
 
             override fun onDisconnected() {
-                AppLogger.log(this@WatchSyncService, TAG, "BLE baglantisi koptu")
-                finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
+                if (isSyncing) {
+                    AppLogger.log(this@WatchSyncService, TAG, "BLE baglantisi koptu")
+                    finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
+                }
             }
 
             override fun onSleepRecord(record: SleepRecord) {

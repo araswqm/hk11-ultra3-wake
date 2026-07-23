@@ -9,13 +9,11 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.os.ParcelUuid
 import android.util.Log
 import com.example.hk11ultra3.model.SleepRecord
 import kotlinx.coroutines.CompletableDeferred
@@ -102,12 +100,13 @@ class BleManager(private val context: Context) {
 
     private suspend fun connect(device: BluetoothDevice): Boolean =
         withContext(Dispatchers.IO) {
-            Log.i(TAG, "Connecting: ${device.address}")
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglaniyor: ${device.name} (${device.address})")
             connectedMac = device.address
 
             val deferred = CompletableDeferred<Boolean>()
 
-            bluetoothGatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
+            // autoConnect=true daha guvenilir baglanti
+            bluetoothGatt = device.connectGatt(context, true, object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                     Log.d(TAG, "Connection state: status=$status state=$newState")
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -358,19 +357,19 @@ class BleManager(private val context: Context) {
             return null
         }
 
-        val scanFilter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(BleProtocol.SERVICE_UUID))
-            .build()
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
+        val foundDevices = mutableListOf<String>()
         val scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val device = result.device
-                val name = result.scanRecord?.deviceName ?: device.name ?: ""
+                val name = result.scanRecord?.deviceName ?: device.name ?: "(isimsiz)"
                 val mac = device.address
-                Log.d(TAG, "Device found: $name ($mac)")
+                val rssi = result.rssi
+                foundDevices.add("$name ($mac) RSSI:$rssi")
+                Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
                 if (targetMac != null) {
                     if (mac.equals(targetMac, ignoreCase = true)) {
                         scanner.stopScan(this)
@@ -386,13 +385,27 @@ class BleManager(private val context: Context) {
             }
 
             override fun onScanFailed(errorCode: Int) {
-                Log.e(TAG, "Scan failed: $errorCode")
+                val errMsg = when (errorCode) {
+                    1 -> "SCAN_FAILED_ALREADY_STARTED"
+                    2 -> "SCAN_FAILED_APPLICATION_REGISTRATION_FAILED"
+                    3 -> "SCAN_FAILED_INTERNAL_ERROR"
+                    4 -> "SCAN_FAILED_FEATURE_UNSUPPORTED"
+                    5 -> "SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES"
+                    6 -> "SCAN_FAILED_SCANNING_TOO_FREQUENTLY"
+                    else -> "UNKNOWN($errorCode)"
+                }
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama basarisiz: $errMsg")
                 deferred.complete(null)
             }
         }
 
-        scanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
-        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (15sn timeout)")
+        try {
+            scanner.startScan(null, scanSettings, scanCallback)  // null = tum cihazlar
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (filtresiz, 15sn)")
+        } catch (e: SecurityException) {
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama izni yok: ${e.message}")
+            return null
+        }
 
         val result = withContext(Dispatchers.IO) {
             kotlinx.coroutines.withTimeoutOrNull(15_000L) {
@@ -402,9 +415,12 @@ class BleManager(private val context: Context) {
 
         scanner.stopScan(scanCallback)
         if (result == null) {
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama tamamlandi, cihaz BULUNAMADI")
+            val summary = if (foundDevices.isEmpty()) "HIC CIHAZ BULUNAMADI"
+                else "Bulunanlar: ${foundDevices.take(5).joinToString(" | ")}"
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: $summary")
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Aranan MAC: $targetMac")
         } else {
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Cihaz bulundu: ${result.name} (${result.address})")
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HEDEF BULUNDU: ${result.name} (${result.address})")
         }
         return result
     }
