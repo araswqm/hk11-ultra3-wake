@@ -43,21 +43,11 @@
         <activity
             android:name=".TaskerPluginActivity"
             android:exported="true"
-            android:label="HK11 Wake">
+            android:label="HK11 Wake"
+            android:icon="@drawable/ic_launcher_foreground">
 
-            <!-- Tasker / Locale plugin standardı -->
             <intent-filter>
                 <action android:name="com.twofortyfouram.locale.intent.action.EDIT_SETTING" />
-            </intent-filter>
-
-            <!-- Macrodroid plugin standardı -->
-            <intent-filter>
-                <action android:name="com.arlosoft.macrodroid.action.ACTION_PLUGIN" />
-            </intent-filter>
-
-            <!-- Tasker kendi FireSetting action'ı için -->
-            <intent-filter>
-                <action android:name="com.joaomgcd.tasker.action.FIRE_SETTING" />
             </intent-filter>
         </activity>
 

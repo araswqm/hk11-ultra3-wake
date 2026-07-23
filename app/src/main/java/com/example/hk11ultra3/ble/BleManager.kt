@@ -196,8 +196,12 @@ class BleManager(private val context: Context) {
     suspend fun requestSleepData(lastSyncTime: Long = 0L) {
         Log.i(TAG, "Requesting sleep data, lastSync=$lastSyncTime")
         sleepRecords.clear()
-        writeCharacteristic(BleProtocol.setSyncDataHr(lastSyncTime))
+        // Request from 7 days ago to get all stored sleep records
+        val fromTime = if (lastSyncTime > 0) lastSyncTime
+            else System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000
+        writeCharacteristic(BleProtocol.setSyncDataHr(fromTime))
         kotlinx.coroutines.delay(500)
+        // Also request yesterday explicitly for the detailed sleep records
         val yesterday = System.currentTimeMillis() - 24 * 60 * 60 * 1000
         writeCharacteristic(BleProtocol.syncSleepData(yesterday))
         resetSyncTimeout()

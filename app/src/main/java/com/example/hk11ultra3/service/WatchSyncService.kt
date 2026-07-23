@@ -201,32 +201,36 @@ class WatchSyncService : Service() {
     }
 
     /**
-     * Gelen uyku verilerini işler.
-     * @return true eğer uyanma tespit edildiyse
+     * Gelen uyku verilerini isler.
+     * Tum kayitlari kabul eder (sadece bugun degil), en son uyku seansi uzerinden calisir.
+     * @return true eger uyanma tespit edildiyse
      */
     private fun processSleepData(records: List<SleepRecord>, settings: AppSettings): Boolean {
         if (records.isEmpty()) {
-            Log.i(TAG, "Uyku kaydı alınamadı")
+            Log.i(TAG, "Uyku kaydi alinamadi")
+            // Save empty status so UI knows sync happened but no data
+            prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
             return false
         }
 
-        val todayRecords = SleepDataParser.filterToday(records)
-        if (todayRecords.isEmpty()) {
-            Log.i(TAG, "Bugüne ait uyku kaydı yok — saat uyku kaydetmemiş olabilir")
-            return false
-        }
+        // Group records by sleep session: a session is records within 6 hours of each other
+        val sessions = groupIntoSessions(records.sortedBy { it.timestamp })
+        val latestSession = sessions.lastOrNull() ?: return false
 
-        // Her sync'te uyku özetini SharedPreferences'a kaydet (UI'da gösterilecek)
-        saveSleepSummary(todayRecords)
+        Log.i(TAG, "${records.size} uyku kaydi, ${sessions.size} uyku seansi bulundu")
+        Log.i(TAG, "En son seans: ${latestSession.size} segment")
 
-        val sleepStart = todayRecords.minOf { it.timestamp }
-        val totalMin = todayRecords.sumOf { it.sleepDuration }
-        val deepMin = todayRecords.filter { it.sleepType == 2 }.sumOf { it.sleepDuration }
-        val lightMin = todayRecords.filter { it.sleepType == 1 }.sumOf { it.sleepDuration }
-        val segments = todayRecords.size
-        val possibleWake = todayRecords.maxOf { it.endTimestamp }
+        // Save summary for the latest session (for UI)
+        saveSleepSummary(latestSession)
 
-        // Her sync'te SLEEP_UPDATED broadcast (Tasker/Macrodroid canlı takip)
+        val sleepStart = latestSession.minOf { it.timestamp }
+        val totalMin = latestSession.sumOf { it.sleepDuration }
+        val deepMin = latestSession.filter { it.sleepType == 2 }.sumOf { it.sleepDuration }
+        val lightMin = latestSession.filter { it.sleepType == 1 }.sumOf { it.sleepDuration }
+        val segments = latestSession.size
+        val possibleWake = latestSession.maxOf { it.endTimestamp }
+
+        // Broadcast update
         SleepEventBroadcaster.broadcastSleepUpdated(
             context = this,
             sleepStartMillis = sleepStart,
@@ -237,9 +241,9 @@ class WatchSyncService : Service() {
             segmentCount = segments
         )
 
-        // Uyanma zamanını tespit et
-        val wakeTime = WakeDetector.detectWakeUp(todayRecords, prefs)
-            ?: return false  // zaten tespit edilmiş veya veri yetersiz
+        // Wake detection: use latest session
+        val wakeTime = WakeDetector.detectWakeUp(latestSession, prefs)
+            ?: return false  // zaten tespit edilmis veya veri yetersiz
 
         // ═══════════════════════════════════════════════════════════
         // UYANMA TESPİT EDİLDİ!
@@ -255,8 +259,8 @@ class WatchSyncService : Service() {
         val reminderTime = reminderManager.scheduleReminder(wakeTime, delayMinutes)
         val reminderTimeStr = WakeDetector.formatTime(reminderTime)
 
-        // 2. Toplam uyku süresi
-        val totalSleepMin = todayRecords.sumOf { it.sleepDuration }
+        // 2. Toplam uyku suresi
+        val totalSleepMin = latestSession.sumOf { it.sleepDuration }
         val sleepHours = totalSleepMin / 60
         val sleepMins = totalSleepMin % 60
 
@@ -306,7 +310,7 @@ class WatchSyncService : Service() {
     }
 
     /**
-     * Uyku özetini SharedPreferences'a kaydeder (UI'da gösterilecek).
+     * Uyku ozetini SharedPreferences'a kaydeder (UI'da gosterilecek).
      */
     private fun saveSleepSummary(records: List<SleepRecord>) {
         if (records.isEmpty()) return
@@ -316,6 +320,8 @@ class WatchSyncService : Service() {
         val totalMin = records.sumOf { it.sleepDuration }
         val deepMin = records.filter { it.sleepType == 2 }.sumOf { it.sleepDuration }
         val lightMin = records.filter { it.sleepType == 1 }.sumOf { it.sleepDuration }
+        val sessionDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date(sleepStartTime))
 
         prefs.edit()
             .putLong("summary_sleep_start", sleepStartTime)
@@ -324,9 +330,31 @@ class WatchSyncService : Service() {
             .putInt("summary_deep_min", deepMin)
             .putInt("summary_light_min", lightMin)
             .putInt("summary_segment_count", records.size)
+            .putString("summary_date", sessionDate)
+            .putLong("summary_sync_time", System.currentTimeMillis())
             .apply()
 
-        Log.d(TAG, "Uyku özeti kaydedildi: ${totalMin}dk (derin:${deepMin}dk, hafif:${lightMin}dk)")
+        Log.d(TAG, "Uyku ozeti kaydedildi: $sessionDate - ${totalMin}dk (derin:${deepMin}dk, hafif:${lightMin}dk)")
+    }
+
+    /**
+     * Uyku kayitlarini seanslara boler.
+     * 6 saatten fazla bosluk varsa yeni seans baslatir.
+     */
+    private fun groupIntoSessions(sorted: List<SleepRecord>): List<List<SleepRecord>> {
+        if (sorted.isEmpty()) return emptyList()
+        val sessions = mutableListOf<MutableList<SleepRecord>>()
+        var current = mutableListOf(sorted[0])
+        for (i in 1 until sorted.size) {
+            val gap = sorted[i].timestamp - sorted[i - 1].endTimestamp
+            if (gap > 6 * 60 * 60 * 1000) {
+                sessions.add(current)
+                current = mutableListOf()
+            }
+            current.add(sorted[i])
+        }
+        sessions.add(current)
+        return sessions
     }
 
     /**

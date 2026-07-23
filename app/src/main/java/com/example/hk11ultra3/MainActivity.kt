@@ -154,7 +154,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Bugünkü uyku özetini SharedPreferences'tan okuyup ekranda gösterir.
+     * Son uyku ozetini SharedPreferences'tan okuyup ekranda gosterir.
      */
     private fun updateSleepSummary() {
         val sleepStart = prefs.getLong("summary_sleep_start", 0L)
@@ -163,14 +163,16 @@ class MainActivity : AppCompatActivity() {
         val deepMin = prefs.getInt("summary_deep_min", 0)
         val lightMin = prefs.getInt("summary_light_min", 0)
         val segments = prefs.getInt("summary_segment_count", 0)
+        val sessionDate = prefs.getString("summary_date", "") ?: ""
+        val syncTime = prefs.getLong("summary_sync_time", 0L)
 
         if (sleepStart == 0L && wakeTime == 0L) {
-            // Hiç veri yok, kartı gizle
             binding.cardSleepSummary.visibility = View.GONE
             return
         }
 
         binding.cardSleepSummary.visibility = View.VISIBLE
+        binding.tvSleepTitle.text = if (sessionDate.isNotEmpty()) "Son uyku: $sessionDate" else "Son uyku verisi"
 
         if (sleepStart > 0) {
             binding.tvSleepStart.text = timeOnlyFormat.format(Date(sleepStart))
@@ -181,7 +183,7 @@ class MainActivity : AppCompatActivity() {
         if (wakeTime > 0) {
             binding.tvSleepEnd.text = timeOnlyFormat.format(Date(wakeTime))
         } else {
-            binding.tvSleepEnd.text = "uyanmadı?"
+            binding.tvSleepEnd.text = "henuz uyanmamis"
         }
 
         if (totalMin > 0) {
@@ -203,7 +205,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (segments > 0) {
-            binding.tvSleepSegments.text = "$segments uyku segmenti kaydedildi"
+            val syncStr = if (syncTime > 0) {
+                " (son sync: ${timeOnlyFormat.format(Date(syncTime))})"
+            } else ""
+            binding.tvSleepSegments.text = "$segments segment$syncStr"
         } else {
             binding.tvSleepSegments.text = ""
         }

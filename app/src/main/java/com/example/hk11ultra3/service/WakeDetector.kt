@@ -37,16 +37,18 @@ object WakeDetector {
             return null
         }
 
-        // Son segmentin bitiş zamanı = uyanma zamanı
+        // Son segmentin bitis zamani = uyanma zamani
         val wakeTime = records.maxOf { it.endTimestamp }
 
-        // Bugünün tarihi
-        val today = dateFormat.format(Date())
+        // Bu seansin tarihi
+        val sessionDate = dateFormat.format(Date(records.minOf { it.timestamp }))
 
-        // Aynı gün için zaten uyanma tespit edildi mi kontrol et
+        // Bu seans icin zaten uyanma tespit edildi mi kontrol et
         val lastWakeDate = prefs.getString(KEY_LAST_WAKE_DATE, "")
-        if (lastWakeDate == today) {
-            Log.d(TAG, "Bugün için uyanma zaten tespit edildi: $lastWakeDate")
+        if (lastWakeDate == sessionDate) {
+            Log.d(TAG, "Bu seans icin uyanma zaten tespit edildi: $lastWakeDate")
+            // Still save wake time so UI can show it
+            prefs.edit().putLong(KEY_LAST_WAKE_TIME, wakeTime).apply()
             return null
         }
 
@@ -71,7 +73,7 @@ object WakeDetector {
         // Kaydet
         prefs.edit()
             .putLong(KEY_LAST_WAKE_TIME, wakeTime)
-            .putString(KEY_LAST_WAKE_DATE, today)
+            .putString(KEY_LAST_WAKE_DATE, sessionDate)
             .apply()
 
         return wakeTime
