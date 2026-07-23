@@ -392,13 +392,13 @@ class BleManager(private val context: Context) {
 
             if (targetMac != null) {
                 if (mac.equals(targetMac, ignoreCase = true)) {
-                    bluetoothAdapter.stopLeScan(this)
+                    bluetoothAdapter.stopLeScan(leScanCallback)
                     deferred.complete(device)
                 }
             } else {
                 if (name.contains("HK11", ignoreCase = true) ||
                     name.contains("Ultra", ignoreCase = true)) {
-                    bluetoothAdapter.stopLeScan(this)
+                    bluetoothAdapter.stopLeScan(leScanCallback)
                     deferred.complete(device)
                 }
             }
