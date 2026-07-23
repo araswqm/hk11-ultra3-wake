@@ -91,12 +91,14 @@ class MainActivity : AppCompatActivity() {
             }
             binding.btnTestWebhook.isEnabled = false
             Thread {
-                val sent = com.example.hk11ultra3.service.WebhookSender.send(
-                    url = url,
-                    wakeTime = System.currentTimeMillis(),
-                    reminderTime = System.currentTimeMillis() + 7200_000,
-                    totalSleepMinutes = 480
-                )
+                val sent = kotlinx.coroutines.runBlocking {
+                    com.example.hk11ultra3.service.WebhookSender.send(
+                        url = url,
+                        wakeTime = System.currentTimeMillis(),
+                        reminderTime = System.currentTimeMillis() + 7200_000,
+                        totalSleepMinutes = 480
+                    )
+                }
                 runOnUiThread {
                     binding.btnTestWebhook.isEnabled = true
                     Toast.makeText(

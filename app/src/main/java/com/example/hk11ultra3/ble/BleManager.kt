@@ -343,7 +343,8 @@ class BleManager(private val context: Context) {
 
             if (datas.isEmpty()) return
 
-            Log.d(TAG, "Notify: ${assembled.joinToString(" ") { "%02X".format(it) }}")
+            val hex = assembled.joinToString(" ") { "%02X".format(it) }
+            Log.d(TAG, "Notify: $hex")
 
             // Header kontrolü
             val header = datas[0]
