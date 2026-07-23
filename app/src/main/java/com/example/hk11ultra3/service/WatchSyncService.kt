@@ -43,6 +43,8 @@ class WatchSyncService : Service() {
         const val ACTION_SEND_REMINDER = "com.example.hk11ultra3.ACTION_SEND_REMINDER"
         const val EXTRA_TITLE = "title"
         const val EXTRA_MESSAGE = "message"
+        const val BROADCAST_SYNC_STARTED = "com.example.hk11ultra3.SYNC_STARTED"
+        const val BROADCAST_SYNC_DONE = "com.example.hk11ultra3.SYNC_DONE"
 
         fun startSync(context: Context) {
             val intent = Intent(context, WatchSyncService::class.java).apply {
@@ -123,6 +125,7 @@ class WatchSyncService : Service() {
             return
         }
         isSyncing = true
+        sendBroadcast(Intent(BROADCAST_SYNC_STARTED))
 
         val settings = loadSettings()
         if (settings.targetMacAddress.isBlank()) {
@@ -181,6 +184,9 @@ class WatchSyncService : Service() {
 
             override fun onError(message: String) {
                 Log.e(TAG, "Hata: $message")
+                sendBroadcast(Intent(BROADCAST_SYNC_DONE).apply {
+                    putExtra("error", message)
+                })
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             }
         }
@@ -368,20 +374,24 @@ class WatchSyncService : Service() {
         isSyncing = false
         bleManager.disconnect()
 
-        if (wakeDetected) {
-            // Uyanma tespit edildi → servisi kapat, bugünlük iş tamam
-            Log.i(TAG, "Uyanma tespit edildi, servis kapatılıyor")
-            stopSelf()
-        } else if (isPeriodic) {
-            // Periyodik modda → bir sonraki sync'i planla, servisi kapat
-            val intervalMs = SyncScheduler.getCurrentIntervalMinutes() * 60_000
-            SyncScheduler.scheduleNext(this, intervalMs)
-            Log.i(TAG, "Sonraki periyodik sync: ${intervalMs / 60_000}dk sonra")
-            updateNotification("⏳ Sonraki kontrol: ~${intervalMs / 60_000}dk sonra")
-            stopSelf()
-        } else {
-            // Manuel modda → direkt kapat
-            updateNotification("✅ Sync tamam")
+        val recordCount = prefs.getInt("summary_segment_count", 0)
+
+        // Notify UI via broadcast
+        sendBroadcast(Intent(BROADCAST_SYNC_DONE).apply {
+            putExtra("record_count", recordCount)
+            putExtra("wake_detected", wakeDetected)
+        })
+
+        // Brief delay so broadcast is delivered before service stops
+        serviceScope.launch {
+            delay(500)
+            if (wakeDetected) {
+                Log.i(TAG, "Uyanma tespit edildi, servis kapatiliyor")
+            } else if (isPeriodic) {
+                val intervalMs = SyncScheduler.getCurrentIntervalMinutes() * 60_000
+                SyncScheduler.scheduleNext(this@WatchSyncService, intervalMs)
+                Log.i(TAG, "Sonraki periyodik sync: ${intervalMs / 60_000}dk sonra")
+            }
             stopSelf()
         }
     }

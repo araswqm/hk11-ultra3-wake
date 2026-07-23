@@ -1,6 +1,10 @@
 package com.example.hk11ultra3
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +28,59 @@ class MainActivity : AppCompatActivity() {
 
     private val dateFormat = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("tr"))
     private val timeOnlyFormat = SimpleDateFormat("HH:mm", Locale("tr"))
+
+    private val syncUpdateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                WatchSyncService.BROADCAST_SYNC_DONE -> {
+                    val recordCount = intent.getIntExtra("record_count", 0)
+                    val wakeDetected = intent.getBooleanExtra("wake_detected", false)
+                    val error = intent.getStringExtra("error")
+                    runOnUiThread {
+                        binding.progressBar.visibility = View.GONE
+                        when {
+                            error != null -> binding.tvStatus.text = "❌ $error"
+                            wakeDetected -> binding.tvStatus.text = "🌅 Uyanma tespit edildi!"
+                            recordCount > 0 -> binding.tvStatus.text = "✅ $recordCount uyku kaydi alindi"
+                            else -> binding.tvStatus.text = "⚠ Uyku kaydi bulunamadi (saat takili mi?)"
+                        }
+                        updateStatusDisplay()
+                    }
+                }
+                WatchSyncService.BROADCAST_SYNC_STARTED -> {
+                    runOnUiThread {
+                        binding.tvStatus.text = "⏳ Saate baglaniyor..."
+                        binding.progressBar.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        setupUI()
+        requestPermissions()
+        loadSettings()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateStatusDisplay()
+        val filter = IntentFilter().apply {
+            addAction(WatchSyncService.BROADCAST_SYNC_DONE)
+            addAction(WatchSyncService.BROADCAST_SYNC_STARTED)
+        }
+        registerReceiver(syncUpdateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try { unregisterReceiver(syncUpdateReceiver) } catch (_: Exception) {}
+    }
 
     // Permission launcher
     private val permissionLauncher = registerForActivityResult(
