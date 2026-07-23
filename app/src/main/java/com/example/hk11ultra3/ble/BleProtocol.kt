@@ -57,14 +57,14 @@ object BleProtocol {
             .array()
     }
 
-    /** EA header'lı paket */
+    /** EA header'lı paket — prefix 0x00 (AB header'dan farkli!) */
     private fun makeEaPacket(command: Byte, subcommand: Byte, payload: ByteArray): ByteArray {
         val totalLen = payload.size + 2
         return ByteBuffer.allocate(payload.size + 4)
             .order(ByteOrder.BIG_ENDIAN)
             .put(HEADER_EA)
             .putShort(totalLen.toShort())
-            .put(PREFIX)
+            .put(0x00.toByte())
             .put(command)
             .put(subcommand)
             .put(payload)
@@ -115,89 +115,84 @@ object BleProtocol {
             .array()
     }
 
-    // ── Veri senkronizasyon komutları ────────────────────────────────
+    // ── Veri senkronizasyon komutlari ────────────────────────────────
+    // TensorFlow Lite BuiltinOptions sabitleri kullanilir:
+    //   ReverseV2Options=81(0x51), AddNOptions=82(0x52), NegOptions=42(0x2A)
 
     /**
-     * Genel veri senkronizasyonunu başlat (SYNC_DATA_ORDER2).
-     * @param timeInMillis başlangıç zamanı, 0 = tüm veriyi al
+     * Genel veri senkronizasyonu (SYNC_DATA_ORDER2).
+     * Komut: 0x51 (ReverseV2Options)
      */
     fun setSyncDataHr(timeInMillis: Long = 0L): ByteArray {
         val cal = Calendar.getInstance()
         val payload = ByteArray(13)
-        payload[0] = 0xCA.toByte()
+        payload[0] = 0x51.toByte()
         payload[1] = 0x80.toByte()
 
         if (timeInMillis == 0L) {
             payload[3] = (cal.get(Calendar.YEAR) - 2000).toByte()
             payload[4] = (cal.get(Calendar.MONTH) + 1).toByte()
             payload[5] = cal.get(Calendar.DAY_OF_MONTH).toByte()
-            // saat/dakika/saniye 0
         } else {
             cal.timeInMillis = timeInMillis
             val cal2 = Calendar.getInstance().also { it.timeInMillis = timeInMillis }
-            // Başlangıç aralığı
             payload[3] = (cal.get(Calendar.YEAR) - 2000).toByte()
             payload[4] = (cal.get(Calendar.MONTH) + 1).toByte()
             payload[5] = cal.get(Calendar.DAY_OF_MONTH).toByte()
-            // Bitiş aralığı
             payload[8] = (cal2.get(Calendar.YEAR) - 2000).toByte()
             payload[9] = (cal2.get(Calendar.MONTH) + 1).toByte()
             payload[10] = cal2.get(Calendar.DAY_OF_MONTH).toByte()
             payload[11] = cal2.get(Calendar.HOUR_OF_DAY).toByte()
             payload[12] = cal2.get(Calendar.MINUTE).toByte()
         }
-        return makePacket(0xCA.toByte(), 0x80.toByte(), payload)
+        return makePacket(0x51.toByte(), 0x80.toByte(), payload)
     }
 
     /**
      * Uyku verisi talebi (SYNC_SLEEP_DATA_ORDER).
-     * @param timeInMillis hangi gunun uyku verisi (genelde dun)
+     * Komut: 0x52 (AddNOptions)
      */
     fun syncSleepData(timeInMillis: Long): ByteArray {
         val cal = Calendar.getInstance().also { it.timeInMillis = timeInMillis }
         val payload = byteArrayOf(
-            0xAC.toByte(),
+            0x52.toByte(),
             0x80.toByte(),
             0x00,
             (cal.get(Calendar.YEAR) - 2000).toByte(),
             (cal.get(Calendar.MONTH) + 1).toByte(),
             cal.get(Calendar.DAY_OF_MONTH).toByte()
         )
-        return makePacket(0xAC.toByte(), 0x80.toByte(), payload)
+        return makePacket(0x52.toByte(), 0x80.toByte(), payload)
     }
 
     /**
-     * Uyku apnesi verisi talebi.
-     * WearFit Pro DataSyncMgr.startSyncData() icinde cagrilir.
+     * Uyku apnesi verisi talebi — EA header, komut 0x2A (NegOptions=42).
      */
     fun syncSleepApnea(timeInMillis: Long): ByteArray {
         val cal = Calendar.getInstance().also { it.timeInMillis = timeInMillis }
         val payload = byteArrayOf(
-            0xAD.toByte(),
-            0x80.toByte(),
-            0x00,
+            0x2A.toByte(),
+            0x01.toByte(),
             (cal.get(Calendar.YEAR) - 2000).toByte(),
             (cal.get(Calendar.MONTH) + 1).toByte(),
             cal.get(Calendar.DAY_OF_MONTH).toByte()
         )
-        return makePacket(0xAD.toByte(), 0x80.toByte(), payload)
+        return makeEaPacket(0x2A.toByte(), 0x01.toByte(), payload)
     }
 
     /**
-     * GPS verisi talebi.
-     * WearFit Pro DataSyncMgr.startSyncData() icinde cagrilir.
+     * GPS verisi talebi — EA header, komut 0x1C.
      */
     fun syncGpsData(time: Int = 0): ByteArray {
         val payload = byteArrayOf(
-            0xCB.toByte(),
-            0x80.toByte(),
-            0x00,
+            0x1C.toByte(),
+            0x01.toByte(),
             (time shr 24).toByte(),
             (time shr 16).toByte(),
             (time shr 8).toByte(),
             (time and 0xFF).toByte()
         )
-        return makePacket(0xCB.toByte(), 0x80.toByte(), payload)
+        return makeEaPacket(0x1C.toByte(), 0x01.toByte(), payload)
     }
 
     // ── Saate bildirim gönderme ──────────────────────────────────────
