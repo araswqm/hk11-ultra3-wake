@@ -22,7 +22,7 @@ object WakeDetector {
     private const val TAG = "WakeDetector"
     private const val PREFS_NAME = "wake_detector"
     private const val KEY_LAST_WAKE_TIME = "last_wake_time"
-    private const val KEY_LAST_WAKE_DATE = "last_wake_date"
+    private const val KEY_LAST_WAKE_DATE = "wake_detector_last_wake_date"
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
