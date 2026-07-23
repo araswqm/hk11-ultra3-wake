@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.hk11ultra3.databinding.ActivityMainBinding
+import com.example.hk11ultra3.service.AppLogger
 import com.example.hk11ultra3.service.SyncScheduler
 import com.example.hk11ultra3.service.WakeDetector
 import com.example.hk11ultra3.service.WatchSyncService
@@ -117,6 +118,19 @@ class MainActivity : AppCompatActivity() {
             binding.tvStatus.text = "⏸ Durduruldu"
             binding.progressBar.visibility = View.GONE
             Toast.makeText(this, "Periyodik sync durduruldu", Toast.LENGTH_SHORT).show()
+        }
+
+        // Log goster butonu
+        binding.btnShowLog.setOnClickListener {
+            val logs = AppLogger.getLogs(this)
+            if (binding.cardLog.visibility == View.VISIBLE) {
+                binding.cardLog.visibility = View.GONE
+                binding.btnShowLog.text = "📋 Loglari Goster"
+            } else {
+                binding.tvLog.text = logs
+                binding.cardLog.visibility = View.VISIBLE
+                binding.btnShowLog.text = "📋 Loglari Gizle"
+            }
         }
 
         // Kaydet butonu

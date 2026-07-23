@@ -66,9 +66,11 @@ class BleManager(private val context: Context) {
 
     suspend fun scanAndConnect(targetMac: String? = null): Boolean {
         if (!bluetoothAdapter.isEnabled) {
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Bluetooth kapali")
             callback?.onError("Bluetooth is off")
             return false
         }
+        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Taranıyor: targetMac=$targetMac")
 
         val device: BluetoothDevice = if (targetMac != null) {
             try {
@@ -390,7 +392,7 @@ class BleManager(private val context: Context) {
         }
 
         scanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
-        Log.i(TAG, "Scanning for devices...")
+        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (15sn timeout)")
 
         val result = withContext(Dispatchers.IO) {
             kotlinx.coroutines.withTimeoutOrNull(15_000L) {
@@ -399,6 +401,11 @@ class BleManager(private val context: Context) {
         }
 
         scanner.stopScan(scanCallback)
+        if (result == null) {
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama tamamlandi, cihaz BULUNAMADI")
+        } else {
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Cihaz bulundu: ${result.name} (${result.address})")
+        }
         return result
     }
 }

@@ -121,15 +121,16 @@ class WatchSyncService : Service() {
 
     private fun handleStartSync(isPeriodic: Boolean) {
         if (isSyncing) {
-            Log.d(TAG, "Zaten senkronize ediliyor, tekrar atlanıyor")
+            AppLogger.log(this, TAG, "Zaten sync ediliyor, atlandi")
             return
         }
         isSyncing = true
-        sendBroadcast(Intent(BROADCAST_SYNC_STARTED))
+        AppLogger.log(this, TAG, if (isPeriodic) "Periyodik sync basladi" else "Manuel sync basladi")
 
         val settings = loadSettings()
+        AppLogger.log(this, TAG, "Hedef MAC: ${settings.targetMacAddress}")
         if (settings.targetMacAddress.isBlank()) {
-            Log.w(TAG, "Hedef MAC adresi ayarlanmamış")
+            AppLogger.log(this, TAG, "HATA: MAC adresi bos")
             isSyncing = false
             updateNotification("⚠ MAC adresi gerekli")
             stopSelf()
@@ -153,7 +154,7 @@ class WatchSyncService : Service() {
 
         bleManager.callback = object : BleManager.Callback {
             override fun onConnected(mac: String) {
-                Log.i(TAG, "Baglandi: $mac")
+                AppLogger.log(this@WatchSyncService, TAG, "BLE baglandi: $mac")
                 prefs.edit().putBoolean("ble_connected", true)
                     .putString("last_error", "Baglandi, veri bekleniyor...").apply()
                 updateNotification("Baglandi, uyku verisi aliniyor...")
@@ -162,9 +163,9 @@ class WatchSyncService : Service() {
                         bleManager.handshake()
                         delay(500)
                         bleManager.requestSleepData()
-                        Log.i(TAG, "requestSleepData tamamlandi, notify bekleniyor...")
+                        AppLogger.log(this@WatchSyncService, TAG, "Komutlar gonderildi, cevap bekleniyor")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Sync hatasi: ${e.message}", e)
+                        AppLogger.log(this@WatchSyncService, TAG, "Sync HATA: ${e.message}")
                         prefs.edit().putLong("summary_sync_time", System.currentTimeMillis())
                             .putString("last_error", "Sync hatasi: ${e.message}").apply()
                         finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
@@ -173,36 +174,34 @@ class WatchSyncService : Service() {
             }
 
             override fun onDisconnected() {
-                Log.i(TAG, "Bağlantı kesildi")
+                AppLogger.log(this@WatchSyncService, TAG, "BLE baglantisi koptu")
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             }
 
             override fun onSleepRecord(record: SleepRecord) {
-                Log.d(TAG, "Uyku kaydı: type=${record.sleepType} duration=${record.sleepDuration}dk")
+                AppLogger.log(this@WatchSyncService, TAG, "Uyku kaydi: tip=${record.sleepType} sure=${record.sleepDuration}dk")
             }
 
             override fun onSyncComplete(sleepRecords: List<SleepRecord>) {
-                Log.i(TAG, "Sync tamamlandı: ${sleepRecords.size} kayıt")
+                AppLogger.log(this@WatchSyncService, TAG, "Sync bitti: ${sleepRecords.size} kayit")
                 val wakeDetected = processSleepData(sleepRecords, settings)
                 finishSync(settings, wakeDetected, isPeriodic)
             }
 
             override fun onError(message: String) {
-                Log.e(TAG, "Hata: $message")
-                sendBroadcast(Intent(BROADCAST_SYNC_DONE).apply {
-                    putExtra("error", message)
-                })
+                AppLogger.log(this@WatchSyncService, TAG, "BLE HATA: $message")
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             }
         }
 
         serviceScope.launch {
             try {
+                AppLogger.log(this@WatchSyncService, TAG, "Taranıyor ve baglaniliyor...")
                 val connected = withTimeout(30_000L) {
                     bleManager.scanAndConnect(settings.targetMacAddress)
                 }
                 if (!connected) {
-                    Log.e(TAG, "Cihaza baglanilamadi")
+                    AppLogger.log(this@WatchSyncService, TAG, "HATA: scanAndConnect false dondu")
                     prefs.edit()
                         .putLong("summary_sync_time", System.currentTimeMillis())
                         .putString("last_error", "Cihaza baglanilamadi. MAC: ${settings.targetMacAddress}")
@@ -210,14 +209,14 @@ class WatchSyncService : Service() {
                     finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
                 }
             } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "Baglanti zaman asimi (30sn)")
+                AppLogger.log(this@WatchSyncService, TAG, "HATA: baglanti zamani asimi (30sn)")
                 prefs.edit()
                     .putLong("summary_sync_time", System.currentTimeMillis())
                     .putString("last_error", "Zaman asimi: saat bulunamadi")
                     .apply()
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             } catch (e: Exception) {
-                Log.e(TAG, "Baglanti hatasi: ${e.message}", e)
+                AppLogger.log(this@WatchSyncService, TAG, "HATA: ${e.message}")
                 prefs.edit()
                     .putLong("summary_sync_time", System.currentTimeMillis())
                     .putString("last_error", "Hata: ${e.message}")
