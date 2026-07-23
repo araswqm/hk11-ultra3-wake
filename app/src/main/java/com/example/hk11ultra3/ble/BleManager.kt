@@ -1,7 +1,6 @@
 package com.example.hk11ultra3.ble
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -98,10 +97,14 @@ class BleManager(private val context: Context) {
     }
 
     private suspend fun connect(device: BluetoothDevice): Boolean {
-        // Try up to 3 times
+        // Try up to 3 times, cleanup between attempts
         repeat(3) { attempt ->
             val result = connectInternal(device, attempt + 1)
             if (result) return true
+            // Cleanup before retry
+            bluetoothGatt?.disconnect()
+            bluetoothGatt?.close()
+            bluetoothGatt = null
             if (attempt < 2) {
                 com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglanti deneme ${attempt + 1} basarisiz, 2sn bekleniyor...")
                 kotlinx.coroutines.delay(2000)
@@ -117,7 +120,8 @@ class BleManager(private val context: Context) {
 
             val deferred = CompletableDeferred<Boolean>()
 
-            bluetoothGatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
+            // TRANSPORT_LE: WearFit Pro ile ayni, sadece BLE (HK11 dual-mode oldugu icin kritik!)
+            val gattCallback = object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                     Log.d(TAG, "Connection state: status=$status state=$newState")
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -148,27 +152,28 @@ class BleManager(private val context: Context) {
                 }
 
                 override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                    com.example.hk11ultra3.service.AppLogger.log(context, TAG, "onServicesDiscovered: status=$status")
                     if (status != BluetoothGatt.GATT_SUCCESS) {
-                        Log.e(TAG, "Service discovery failed")
+                        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Servis kesfi basarisiz (status=$status)")
                         deferred.complete(false)
                         return
                     }
                     val service = gatt.getService(BleProtocol.SERVICE_UUID)
                     if (service == null) {
-                        Log.e(TAG, "Nordic UART service not found")
+                        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Nordic UART servisi BULUNAMADI - TRANSPORT_LE dogru mu?")
                         deferred.complete(false)
                         return
                     }
                     writeCharacteristic = service.getCharacteristic(BleProtocol.WRITE_CHAR_UUID)
                     notifyCharacteristic = service.getCharacteristic(BleProtocol.NOTIFY_CHAR_UUID)
                     if (writeCharacteristic == null || notifyCharacteristic == null) {
-                        Log.e(TAG, "Characteristics not found")
+                        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Karakteristikler bulunamadi")
                         deferred.complete(false)
                         return
                     }
                     val ok = gatt.setCharacteristicNotification(notifyCharacteristic, true)
                     if (!ok) {
-                        Log.e(TAG, "Notify enable failed")
+                        com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Notify enable basarisiz")
                         deferred.complete(false)
                         return
                     }
@@ -177,6 +182,7 @@ class BleManager(private val context: Context) {
                         it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(it)
                     }
+                    com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Servisler hazir, notify aktif")
                     Log.i(TAG, "Services ready, notify enabled")
                     deferred.complete(true)
                 }
@@ -203,7 +209,15 @@ class BleManager(private val context: Context) {
                     isWriting = false
                     processWriteQueue()
                 }
-            })
+            }
+
+            // WearFit Pro: TRANSPORT_LE = 2 (dual-mode cihazda BLE'ye zorla)
+            bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            if (bluetoothGatt == null) {
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: connectGatt null dondu")
+                return@withContext false
+            }
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "connectGatt basarili, servis kesfi bekleniyor...")
 
             val success = deferred.await()
             if (!success) {
@@ -377,59 +391,58 @@ class BleManager(private val context: Context) {
         syncTimeoutRunnable?.let { mainHandler.postDelayed(it, SYNC_TIMEOUT_MS) }
     }
 
-    @Suppress("DEPRECATION")
     private suspend fun scanForDevice(targetMac: String?): BluetoothDevice? {
         val deferred = CompletableDeferred<BluetoothDevice?>()
+        val scanner = bluetoothAdapter.bluetoothLeScanner ?: run {
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: BLE tarayici yok")
+            return null
+        }
+
+        val scanSettings = android.bluetooth.le.ScanSettings.Builder()
+            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
 
         val foundDevices = mutableListOf<String>()
-
-        // WearFit Pro koduyla ayni: deprecated startLeScan API (object olarak)
-        val leScanCallback = object : BluetoothAdapter.LeScanCallback {
-            override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanRecord: ByteArray?) {
-                val name = device?.name ?: "(isimsiz)"
-                val mac = device?.address ?: ""
-                foundDevices.add("$name ($mac) RSSI:$rssi")
-                Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
-
+        val scanCallback = object : android.bluetooth.le.ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
+                val device = result.device
+                val name = result.scanRecord?.deviceName ?: device.name ?: "(isimsiz)"
+                val mac = device.address
+                foundDevices.add("$name ($mac) RSSI:${result.rssi}")
                 if (targetMac != null) {
                     if (mac.equals(targetMac, ignoreCase = true)) {
-                        bluetoothAdapter.stopLeScan(this)
+                        scanner.stopScan(this)
                         deferred.complete(device)
                     }
-                } else {
-                    if (name.contains("HK11", ignoreCase = true) ||
-                        name.contains("Ultra", ignoreCase = true)) {
-                        bluetoothAdapter.stopLeScan(this)
-                        deferred.complete(device)
-                    }
+                } else if (name.contains("HK11", ignoreCase = true) || name.contains("Ultra", ignoreCase = true)) {
+                    scanner.stopScan(this)
+                    deferred.complete(device)
                 }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama basarisiz, kod=$errorCode")
+                deferred.complete(null)
             }
         }
 
         try {
-            val started = bluetoothAdapter.startLeScan(leScanCallback)
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (deprecated API, 10sn)")
-            if (!started) {
-                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: startLeScan false dondu")
-                return null
-            }
+            scanner.startScan(null, scanSettings, scanCallback)
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (10sn)")
         } catch (e: SecurityException) {
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama izni yok: ${e.message}")
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama izni yok")
             return null
         }
 
         val result = withContext(Dispatchers.IO) {
-            kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                deferred.await()
-            }
+            kotlinx.coroutines.withTimeoutOrNull(10_000L) { deferred.await() }
         }
 
-        bluetoothAdapter.stopLeScan(leScanCallback)
+        scanner.stopScan(scanCallback)
         if (result == null) {
             val summary = if (foundDevices.isEmpty()) "HIC CIHAZ BULUNAMADI"
-                else "Bulunanlar: ${foundDevices.take(5).joinToString(" | ")}"
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: $summary")
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Aranan MAC: $targetMac")
+                else "Bulunan: ${foundDevices.take(5).joinToString(" | ")}"
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: $summary. Aranan: $targetMac")
         } else {
             com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HEDEF BULUNDU: ${result.name} (${result.address})")
         }
