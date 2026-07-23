@@ -1,10 +1,6 @@
 package com.example.hk11ultra3
 
 import android.Manifest
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -29,32 +25,42 @@ class MainActivity : AppCompatActivity() {
     private val dateFormat = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("tr"))
     private val timeOnlyFormat = SimpleDateFormat("HH:mm", Locale("tr"))
 
-    private val syncUpdateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                WatchSyncService.BROADCAST_SYNC_DONE -> {
-                    val recordCount = intent.getIntExtra("record_count", 0)
-                    val wakeDetected = intent.getBooleanExtra("wake_detected", false)
-                    val error = intent.getStringExtra("error")
-                    runOnUiThread {
-                        binding.progressBar.visibility = View.GONE
-                        when {
-                            error != null -> binding.tvStatus.text = "❌ $error"
-                            wakeDetected -> binding.tvStatus.text = "🌅 Uyanma tespit edildi!"
-                            recordCount > 0 -> binding.tvStatus.text = "✅ $recordCount uyku kaydi alindi"
-                            else -> binding.tvStatus.text = "⚠ Uyku kaydi bulunamadi (saat takili mi?)"
-                        }
-                        updateStatusDisplay()
-                    }
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pollRunnable: Runnable? = null
+
+    private fun startPolling() {
+        pollRunnable?.let { handler.removeCallbacks(it) }
+        val startTime = System.currentTimeMillis()
+        val runnable = object : Runnable {
+            override fun run() {
+                val elapsed = (System.currentTimeMillis() - startTime) / 1000
+                val lastSync = prefs.getLong("summary_sync_time", 0L)
+                val records = prefs.getInt("summary_segment_count", 0)
+                val connected = prefs.getBoolean("ble_connected", false)
+
+                if (lastSync > startTime) {
+                    // Sync completed!
+                    binding.progressBar.visibility = View.GONE
+                    binding.tvStatus.text = if (records > 0) "✅ $records uyku kaydi alindi ($elapsed saniye)"
+                        else "⚠ Uyku kaydi bulunamadi"
+                    updateStatusDisplay()
+                    return
                 }
-                WatchSyncService.BROADCAST_SYNC_STARTED -> {
-                    runOnUiThread {
-                        binding.tvStatus.text = "⏳ Saate baglaniyor..."
-                        binding.progressBar.visibility = View.VISIBLE
-                    }
+
+                if (elapsed > 45) {
+                    // Timeout
+                    binding.progressBar.visibility = View.GONE
+                    binding.tvStatus.text = "❌ Sync zaman asimi (45sn)"
+                    updateStatusDisplay()
+                    return
                 }
+
+                binding.tvStatus.text = "⏳ Sync devam ediyor... ($elapsed sn)"
+                handler.postDelayed(this, 2000)
             }
         }
+        pollRunnable = runnable
+        handler.postDelayed(runnable, 2000)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,16 +76,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateStatusDisplay()
-        val filter = IntentFilter().apply {
-            addAction(WatchSyncService.BROADCAST_SYNC_DONE)
-            addAction(WatchSyncService.BROADCAST_SYNC_STARTED)
-        }
-        registerReceiver(syncUpdateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onPause() {
         super.onPause()
-        try { unregisterReceiver(syncUpdateReceiver) } catch (_: Exception) {}
+        pollRunnable?.let { handler.removeCallbacks(it) }
     }
 
     // Permission launcher
@@ -95,7 +96,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Sync butonu — periyodik otomatik modu başlatır
+        // Sync butonu
         binding.btnSync.setOnClickListener {
             if (!hasPermissions()) {
                 requestPermissions()
@@ -104,7 +105,10 @@ class MainActivity : AppCompatActivity() {
             saveSettings()
             binding.tvStatus.text = "⏳ Sync başlatılıyor..."
             binding.progressBar.visibility = View.VISIBLE
+            // Clear previous sync time so polling detects new sync
+            prefs.edit().putLong("summary_sync_time", 0L).apply()
             WatchSyncService.startPeriodicSync(this)
+            startPolling()
         }
 
         // Durdur butonu

@@ -109,12 +109,16 @@ class BleManager(private val context: Context) {
                 override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                     Log.d(TAG, "Connection state: status=$status state=$newState")
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        context.getSharedPreferences("hk11_settings", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ble_connected", true).apply()
                         if (status == BluetoothGatt.GATT_SUCCESS) {
                             gatt.discoverServices()
                         } else {
                             deferred.complete(false)
                         }
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                        context.getSharedPreferences("hk11_settings", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ble_connected", false).apply()
                         bluetoothGatt?.close()
                         bluetoothGatt = null
                         mainHandler.post { callback?.onDisconnected() }
