@@ -199,10 +199,20 @@ class BleManager(private val context: Context) {
         // Request from 7 days ago to get all stored sleep records
         val fromTime = if (lastSyncTime > 0) lastSyncTime
             else System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000
+
+        // Match WearFit Pro's DataSyncMgr.startSyncData() flow:
+        // 1. setSyncDataHr - general data sync
         writeCharacteristic(BleProtocol.setSyncDataHr(fromTime))
-        kotlinx.coroutines.delay(500)
-        // Also request yesterday explicitly for the detailed sleep records
+        kotlinx.coroutines.delay(300)
+        // 2. syncSleepApnea - sleep apnea data
+        writeCharacteristic(BleProtocol.syncSleepApnea(fromTime))
+        kotlinx.coroutines.delay(300)
+        // 3. syncGpsData - GPS data (required by protocol)
+        writeCharacteristic(BleProtocol.syncGpsData(0))
+
+        // 4. Request yesterday's detailed sleep records
         val yesterday = System.currentTimeMillis() - 24 * 60 * 60 * 1000
+        kotlinx.coroutines.delay(300)
         writeCharacteristic(BleProtocol.syncSleepData(yesterday))
         resetSyncTimeout()
     }

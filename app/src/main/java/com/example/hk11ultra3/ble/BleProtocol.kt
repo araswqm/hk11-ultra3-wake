@@ -151,7 +151,7 @@ object BleProtocol {
 
     /**
      * Uyku verisi talebi (SYNC_SLEEP_DATA_ORDER).
-     * @param timeInMillis hangi günün uyku verisi (genelde dün)
+     * @param timeInMillis hangi gunun uyku verisi (genelde dun)
      */
     fun syncSleepData(timeInMillis: Long): ByteArray {
         val cal = Calendar.getInstance().also { it.timeInMillis = timeInMillis }
@@ -164,6 +164,40 @@ object BleProtocol {
             cal.get(Calendar.DAY_OF_MONTH).toByte()
         )
         return makePacket(0xAC.toByte(), 0x80.toByte(), payload)
+    }
+
+    /**
+     * Uyku apnesi verisi talebi.
+     * WearFit Pro DataSyncMgr.startSyncData() icinde cagrilir.
+     */
+    fun syncSleepApnea(timeInMillis: Long): ByteArray {
+        val cal = Calendar.getInstance().also { it.timeInMillis = timeInMillis }
+        val payload = byteArrayOf(
+            0xAD.toByte(),
+            0x80.toByte(),
+            0x00,
+            (cal.get(Calendar.YEAR) - 2000).toByte(),
+            (cal.get(Calendar.MONTH) + 1).toByte(),
+            cal.get(Calendar.DAY_OF_MONTH).toByte()
+        )
+        return makePacket(0xAD.toByte(), 0x80.toByte(), payload)
+    }
+
+    /**
+     * GPS verisi talebi.
+     * WearFit Pro DataSyncMgr.startSyncData() icinde cagrilir.
+     */
+    fun syncGpsData(time: Int = 0): ByteArray {
+        val payload = byteArrayOf(
+            0xCB.toByte(),
+            0x80.toByte(),
+            0x00,
+            (time shr 24).toByte(),
+            (time shr 16).toByte(),
+            (time shr 8).toByte(),
+            (time and 0xFF).toByte()
+        )
+        return makePacket(0xCB.toByte(), 0x80.toByte(), payload)
     }
 
     // ── Saate bildirim gönderme ──────────────────────────────────────
