@@ -1,6 +1,7 @@
 package com.example.hk11ultra3.ble
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -8,10 +9,8 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -125,7 +124,17 @@ class BleManager(private val context: Context) {
                         context.getSharedPreferences("hk11_settings", Context.MODE_PRIVATE)
                             .edit().putBoolean("ble_connected", true).apply()
                         if (status == BluetoothGatt.GATT_SUCCESS) {
-                            gatt.discoverServices()
+                            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "Baglandi, 1sn bekleniyor...")
+                            // WearFit Pro: requestConnectionPriority HIGH
+                            try { gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) } catch (_: Exception) {}
+                            // WearFit Pro: PHY 2M
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                try { gatt.setPreferredPhy(2, 2, 0) } catch (_: Exception) {}
+                            }
+                            // WearFit Pro: 1000ms delay before discoverServices
+                            mainHandler.postDelayed({
+                                gatt.discoverServices()
+                            }, 1000L)
                         } else {
                             deferred.complete(false)
                         }
@@ -368,70 +377,52 @@ class BleManager(private val context: Context) {
         syncTimeoutRunnable?.let { mainHandler.postDelayed(it, SYNC_TIMEOUT_MS) }
     }
 
+    @Suppress("DEPRECATION")
     private suspend fun scanForDevice(targetMac: String?): BluetoothDevice? {
         val deferred = CompletableDeferred<BluetoothDevice?>()
-        val scanner = bluetoothAdapter.bluetoothLeScanner ?: run {
-            callback?.onError("BLE scanner unavailable")
-            return null
-        }
-
-        val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
 
         val foundDevices = mutableListOf<String>()
-        val scanCallback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val device = result.device
-                val name = result.scanRecord?.deviceName ?: device.name ?: "(isimsiz)"
-                val mac = device.address
-                val rssi = result.rssi
-                foundDevices.add("$name ($mac) RSSI:$rssi")
-                Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
-                if (targetMac != null) {
-                    if (mac.equals(targetMac, ignoreCase = true)) {
-                        scanner.stopScan(this)
-                        deferred.complete(device)
-                    }
-                } else {
-                    if (name.contains("HK11", ignoreCase = true) ||
-                        name.contains("Ultra", ignoreCase = true)) {
-                        scanner.stopScan(this)
-                        deferred.complete(device)
-                    }
-                }
-            }
 
-            override fun onScanFailed(errorCode: Int) {
-                val errMsg = when (errorCode) {
-                    1 -> "SCAN_FAILED_ALREADY_STARTED"
-                    2 -> "SCAN_FAILED_APPLICATION_REGISTRATION_FAILED"
-                    3 -> "SCAN_FAILED_INTERNAL_ERROR"
-                    4 -> "SCAN_FAILED_FEATURE_UNSUPPORTED"
-                    5 -> "SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES"
-                    6 -> "SCAN_FAILED_SCANNING_TOO_FREQUENTLY"
-                    else -> "UNKNOWN($errorCode)"
+        // WearFit Pro koduyla ayni: deprecated startLeScan API
+        val leScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, scanRecord ->
+            val name = device?.name ?: "(isimsiz)"
+            val mac = device?.address ?: ""
+            foundDevices.add("$name ($mac) RSSI:$rssi")
+            Log.d(TAG, "Device found: $name ($mac) RSSI:$rssi")
+
+            if (targetMac != null) {
+                if (mac.equals(targetMac, ignoreCase = true)) {
+                    bluetoothAdapter.stopLeScan(this)
+                    deferred.complete(device)
                 }
-                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama basarisiz: $errMsg")
-                deferred.complete(null)
+            } else {
+                if (name.contains("HK11", ignoreCase = true) ||
+                    name.contains("Ultra", ignoreCase = true)) {
+                    bluetoothAdapter.stopLeScan(this)
+                    deferred.complete(device)
+                }
             }
         }
 
         try {
-            scanner.startScan(null, scanSettings, scanCallback)  // null = tum cihazlar
-            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (filtresiz, 15sn)")
+            val started = bluetoothAdapter.startLeScan(leScanCallback)
+            com.example.hk11ultra3.service.AppLogger.log(context, TAG, "BLE tarama basladi (deprecated API, 10sn)")
+            if (!started) {
+                com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: startLeScan false dondu")
+                return null
+            }
         } catch (e: SecurityException) {
             com.example.hk11ultra3.service.AppLogger.log(context, TAG, "HATA: Tarama izni yok: ${e.message}")
             return null
         }
 
         val result = withContext(Dispatchers.IO) {
-            kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+            kotlinx.coroutines.withTimeoutOrNull(10_000L) {
                 deferred.await()
             }
         }
 
-        scanner.stopScan(scanCallback)
+        bluetoothAdapter.stopLeScan(leScanCallback)
         if (result == null) {
             val summary = if (foundDevices.isEmpty()) "HIC CIHAZ BULUNAMADI"
                 else "Bulunanlar: ${foundDevices.take(5).joinToString(" | ")}"

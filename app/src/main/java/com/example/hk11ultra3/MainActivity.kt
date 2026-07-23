@@ -48,10 +48,10 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                if (elapsed > 45) {
+                if (elapsed > 65) {
                     // Timeout
                     binding.progressBar.visibility = View.GONE
-                    binding.tvStatus.text = "❌ Sync zaman asimi (45sn)"
+                    binding.tvStatus.text = "❌ Sync zaman asimi (65sn)"
                     updateStatusDisplay()
                     return
                 }

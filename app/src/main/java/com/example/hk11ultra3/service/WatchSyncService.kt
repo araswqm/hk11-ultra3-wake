@@ -210,7 +210,7 @@ class WatchSyncService : Service() {
         serviceScope.launch {
             try {
                 AppLogger.log(this@WatchSyncService, TAG, "Taranıyor ve baglaniliyor...")
-                val connected = withTimeout(30_000L) {
+                val connected = withTimeout(60_000L) {
                     bleManager.scanAndConnect(settings.targetMacAddress)
                 }
                 if (!connected) {
