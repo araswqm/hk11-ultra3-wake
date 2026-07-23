@@ -195,13 +195,18 @@ class MainActivity : AppCompatActivity() {
         val lastSyncTime = prefs.getLong("summary_sync_time", 0L)
         val recordCount = prefs.getInt("summary_segment_count", 0)
 
+        val lastError = prefs.getString("last_error", "") ?: ""
+        val isConnected = prefs.getBoolean("ble_connected", false)
+
         binding.tvStatus.text = when {
             prefs.getString("target_mac", "")?.isBlank() == true -> "⚠ MAC adresi gerekli"
             lastSyncTime == 0L -> "⚡ Hazir (henuz sync yapilmadi)"
             recordCount > 0 -> "✅ $recordCount uyku kaydi alindi"
+            isConnected && lastSyncTime < System.currentTimeMillis() - 60_000 -> "🔗 Baglandi ama veri yok (bekleniyor...)"
             else -> {
                 val secondsAgo = (System.currentTimeMillis() - lastSyncTime) / 1000
-                "⚠ Uyku kaydi bulunamadi (${secondsAgo}s once denendi)"
+                val err = if (lastError.isNotEmpty()) "\n$lastError" else ""
+                "⚠ Uyku kaydi bulunamadi (${secondsAgo}s)$err"
             }
         }
 

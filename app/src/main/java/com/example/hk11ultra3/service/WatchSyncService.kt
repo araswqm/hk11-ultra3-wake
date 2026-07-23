@@ -154,6 +154,8 @@ class WatchSyncService : Service() {
         bleManager.callback = object : BleManager.Callback {
             override fun onConnected(mac: String) {
                 Log.i(TAG, "Baglandi: $mac")
+                prefs.edit().putBoolean("ble_connected", true)
+                    .putString("last_error", "Baglandi, veri bekleniyor...").apply()
                 updateNotification("Baglandi, uyku verisi aliniyor...")
                 serviceScope.launch {
                     try {
@@ -163,7 +165,8 @@ class WatchSyncService : Service() {
                         Log.i(TAG, "requestSleepData tamamlandi, notify bekleniyor...")
                     } catch (e: Exception) {
                         Log.e(TAG, "Sync hatasi: ${e.message}", e)
-                        prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+                        prefs.edit().putLong("summary_sync_time", System.currentTimeMillis())
+                            .putString("last_error", "Sync hatasi: ${e.message}").apply()
                         finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
                     }
                 }
@@ -200,16 +203,25 @@ class WatchSyncService : Service() {
                 }
                 if (!connected) {
                     Log.e(TAG, "Cihaza baglanilamadi")
-                    prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+                    prefs.edit()
+                        .putLong("summary_sync_time", System.currentTimeMillis())
+                        .putString("last_error", "Cihaza baglanilamadi. MAC: ${settings.targetMacAddress}")
+                        .apply()
                     finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
                 }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Baglanti zaman asimi (30sn)")
-                prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+                prefs.edit()
+                    .putLong("summary_sync_time", System.currentTimeMillis())
+                    .putString("last_error", "Zaman asimi: saat bulunamadi")
+                    .apply()
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             } catch (e: Exception) {
                 Log.e(TAG, "Baglanti hatasi: ${e.message}", e)
-                prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+                prefs.edit()
+                    .putLong("summary_sync_time", System.currentTimeMillis())
+                    .putString("last_error", "Hata: ${e.message}")
+                    .apply()
                 finishSync(settings, wakeDetected = false, isPeriodic = isPeriodic)
             }
         }
@@ -384,7 +396,10 @@ class WatchSyncService : Service() {
         bleManager.disconnect()
 
         // Ensure sync time is always updated so UI polling detects completion
-        prefs.edit().putLong("summary_sync_time", System.currentTimeMillis()).apply()
+        prefs.edit()
+            .putLong("summary_sync_time", System.currentTimeMillis())
+            .putBoolean("ble_connected", false)
+            .apply()
 
         val recordCount = prefs.getInt("summary_segment_count", 0)
         Log.i(TAG, "finishSync: wakeDetected=$wakeDetected records=$recordCount isPeriodic=$isPeriodic")
